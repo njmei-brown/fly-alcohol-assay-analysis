@@ -26,9 +26,7 @@ import matplotlib.gridspec as gridspec
 #set4_path = u'C:/Users/Nicholas/Desktop/FlyBar Analysis/Ethological Data/EtOH Dose Expts Part 5/EtOH 45 - 7.5 minutes'
 #set5_path = u'C:/Users/Nicholas/Desktop/FlyBar Analysis/Ethological Data/EtOH Dose Expts Part 4/EtOH 45 - 7.5 minutes'
 #
-#EtOH45_data = [set1_path, set2_path, set3_path, set4_path, set5_path]
-
-
+#EtOH45_data = [set1_path, set2_path, set3_path, set4_path, set5_path] <<-- this is the "grand dataset" to input into the processing and analysis functions
 
 def normalize_processed_data(processed_data):
     """
@@ -75,7 +73,7 @@ def normalize_processed_data(processed_data):
             
     return norm_expt_data
     
-def process_data(grand_dataset, expected_numTrials = None, norm = False):
+def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 'total_time'):
     """
     Function to process a list of paths to experiment set directories
     This particular function only parses out time to end-chamber information
@@ -84,9 +82,27 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False):
     Also accepts an expected number of trials (expected_numTrials) in case 
     some trials are not in the data (i.e. weren't collected, absent due to errors, etc.)
     
+    Finally, user can specify which dependent variable they want to process.
+    The choices are: "total_time", "total_distance", "mean_velocity", "mean_angular_velocity"
+    
     The output of this function can be further processed with the:
     process_grand_data_summary() function
-    """        
+    """
+
+    if dv is 'total_time':
+        c_to_drop = [2,3,4]
+        c_to_drop2 = [0,2,3,4]
+    elif dv is 'total_distance':
+        c_to_drop = [1,3,4]
+        c_to_drop2 = [0,1,3,4]
+    elif dv is 'mean_velocity':
+        c_to_drop = [1,2,4]
+        c_to_drop2 = [0,1,2,4]
+    elif dv is 'mean_angular_velocity':
+        c_to_drop = [1,2,3]
+        c_to_drop2 = [0,1,2,3]
+
+        
     expt_data = []
     
     for expt in grand_dataset:        
@@ -106,18 +122,20 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False):
            trials.sort()          
            cond_dfs = []
            
-           for indx, trial in enumerate(trials):          
+           for indx, trial in enumerate(trials): 
+               #Dataframe will contain in the following order:
+               #tunnel (0), total_time (1), total_distance (2), mean_velocity (3), and mean_angular_velocity (4)               
                get_dataframe = operator.attrgetter('.'.join((cond, trial, "Summarized_Walk_Table")))
                df = get_dataframe(expt_set)           
                if indx == 0:
                    # Drop all columns except tunnel and total_time
                    # This is okay to hardcode!
-                   df = df.drop(df.columns[[2,3,4]], axis=1)
+                   df = df.drop(df.columns[c_to_drop], axis=1)
                else:
                    #drop all columns except total_time
-                   df = df.drop(df.columns[[0,2,3,4]], axis=1)                   
+                   df = df.drop(df.columns[c_to_drop2], axis=1)                   
                #rename total_time so that it incorporates the trial info the data came from
-               df = df.rename(columns = {'total_time':'t{}'.format(indx+1)})               
+               df = df.rename(columns = {dv:'t{}'.format(indx+1)})               
                cond_dfs.append(df)
            # If we are expecting a certain number of trials, this will fill in 
            # nonexisting trials with NaN placeholders
@@ -136,7 +154,7 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False):
     return expt_data
 
     
-def plot_data_summary(grand_dataset, norm = False):
+def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
     """
     Function that plots a data summary for each experimental replicate
     (1 replicate = 1 training and 1 testing session for control and treatment flies)
@@ -144,7 +162,7 @@ def plot_data_summary(grand_dataset, norm = False):
     Plots each individual lane (or fly) and their times 
     alongside a box and whisker summary of all flies for a trial
     """
-    expt_time_data = process_data(grand_dataset, 3, norm)
+    expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)
     
     for indx, (expt_set, expt) in enumerate(expt_time_data):
         
@@ -253,14 +271,14 @@ def plot_data_summary(grand_dataset, norm = False):
                     
         #fig.savefig(u'C:/Users/Nicholas/Desktop/Summarized Data for Expt Replicate {}.pdf'.format(indx+1), format='pdf')        
                 
-def process_grand_data_summary(grand_dataset, norm=False):   
+def process_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):   
     """
     Takes the processed data (from process_data() function) and concatenates
     replicates of the same experiment condition data together. This allows for 
     summary style calculations, plotting, and statistics for
     a specific experiment condition.
     """        
-    expt_time_data = process_data(grand_dataset, 3, norm)    
+    expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)    
     # To get grand data summary we want to concatenate trials for a given condition across different replicates    
     # First determine number of conditions    
     num_conditions = len(expt_time_data[0][1])    
@@ -280,12 +298,12 @@ def process_grand_data_summary(grand_dataset, norm=False):
         cond_summ_dict[cond_labels[cond_ind]] = pd.concat(cond_df_list)               
     return cond_summ_dict
             
-def plot_grand_data_summary(grand_dataset, norm=False):
+def plot_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):
     """
     Takes the processed grand summary data (from process_grand_data_summary() function) 
     and plots it in a boxplot style
     """ 
-    summ_data_dict = process_grand_data_summary(grand_dataset, norm)    
+    summ_data_dict = process_grand_data_summary(grand_dataset, norm, dv = dv)    
     fig = plt.figure(figsize=(11, 8.5))      
     fig.suptitle("Summarized Data", fontsize=12, fontweight='bold')
     fig.subplots_adjust(top=0.90)            
@@ -343,11 +361,11 @@ def plot_grand_data_summary(grand_dataset, norm=False):
     plt.tight_layout            
                     
 
-def plot_trial_by_trial_grand_summary(grand_dataset, norm=False):
+def plot_trial_by_trial_grand_summary(grand_dataset, norm=False, dv = 'total_time'):
     """
     Plots trial by trial grand summary of the data
     """
-    summ_data_dict = process_grand_data_summary(grand_dataset, norm)  
+    summ_data_dict = process_grand_data_summary(grand_dataset, norm, dv=dv)  
     
     fig = plt.figure(figsize=(11, 8.5))      
     fig.suptitle("Summarized Data", fontsize=12, fontweight='bold')
@@ -400,9 +418,9 @@ def plot_trial_by_trial_grand_summary(grand_dataset, norm=False):
     
     #fig.savefig(u'C:/Users/Nicholas/Desktop/Summarized Data for Expt Replicate.pdf', format='pdf')
                    
-def plot_speed_comparison(grand_dataset, norm=False):
+def plot_speed_comparison(grand_dataset, norm=False, dv ='total_time'):
     
-    expt_time_data = process_data(grand_dataset, 3, norm)     
+    expt_time_data = process_data(grand_dataset, 3, norm, dv=dv)     
     all_expt = []
     
     for (expt_set, expt) in expt_time_data:        
