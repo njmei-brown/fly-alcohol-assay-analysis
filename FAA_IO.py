@@ -4,8 +4,6 @@ Class to load in data produced by the
 Fly Alcohol Assay
 
 By Nicholas Mei
-
-Last Updated 2/13/15
 """
 import os
 import os.path
@@ -26,10 +24,10 @@ def chooseDir(cust_text):
         pass
     
     baseFilePath = "C:\Users\Nicholas\Desktop\FlyBar Analysis"
-    directory_path = tkFileDialog.askdirectory(parent = root, title=cust_text, initialdir= baseFilePath)
+    directoryPath = tkFileDialog.askdirectory(parent = root, title=cust_text, initialdir= baseFilePath)
     root.destroy()
     
-    return directory_path
+    return directoryPath
 
 # Class that adds attributes for data pathnames  
 class PATH():   
@@ -43,42 +41,54 @@ class load_trial():
         if not trial_path:
             trial_path = chooseDir("Please select an single trial directory to load")
         if trial_path:
-                  
-            data_paths = []
             
-            try:
-                analyzedWalkPath = glob.glob(os.path.join(trial_path, "Analyzed-Walkway*"))[0]
-                data_paths.append(("Analyzed_Walkway", analyzedWalkPath))        
-            except:
-                print "Could not find the Analyzed-Walkway.txt file for {}! Skipping!\n".format(trial_path)
+            self.data_paths = []
             
-            try:
-                summarizedWalkPath = glob.glob(os.path.join(trial_path, "Summarized-Walkway*"))[0]
-                data_paths.append(("Summarized_Walkway", summarizedWalkPath))
-                self.Summarized_Walk_Table = self.summary_readin(summarizedWalkPath)
-            except:
-                print "Could not find the Summarized-Walkway.txt file for {}! Skipping!\n".format(trial_path)
+            #Walkway relevant data                       
+            self.Raw_Walk_Table = self.readin(trial_path, "Raw-Walkway")
+            self.Analyzed_Walk_Table = self.readin(trial_path, "Analyzed-Walkway")          
+            self.Summarized_Walk_Table = self.readin(trial_path, "Summarized-Walkway")
+
+
+            #EndChamber relevant data  
+            self.Raw_End_Table = self.readin(trial_path, "Raw-EndChamber")            
+            self.Analyzed_End_Table = self.readin(trial_path, "Analyzed-EndChamber")
+            self.Summarized_End_Table = self.readin(trial_path, "Summarized-EndChamber")
             
-            try:
-                analyzedEndPath = glob.glob(os.path.join(trial_path, "Analyzed-EndChamber*"))[0]
-                data_paths.append(("Analyzed_End", analyzedEndPath))
-            except:
-                print "Could not find the Analyzed-Endchamber.txt file for {}! Skipping!\n".format(trial_path)
+            self.PATHS = PATH(self.data_paths)
             
-            try:
-                summarizedEndPath = glob.glob(os.path.join(trial_path, "Summarized-EndChamber*"))[0]
-                data_paths.append(("Summarized_End", summarizedEndPath))
-                self.Summarized_End_Table = self.summary_readin(summarizedEndPath, End_Flag = True) 
-            except:
-                print "Could not find the Summarized-Endchamber.txt file for {}! Skipping!\n".format(trial_path)
+            delattr(self, "data_paths")
             
-            self.PATHS = PATH(data_paths)
+    # General FAA file readin function
+    def readin(self, trial_path, searchString):
+        try:
+            filePath = glob.glob(os.path.join(trial_path, "{}*".format(searchString)))[0]
+            self.data_paths.append((("_".join(searchString.split("-"))), filePath))
             
+            if "Summarized" in searchString:
+                if "End" in searchString:
+                    return self.summary_readin(filePath, End_Flag = True)
+                else:
+                    return self.summary_readin(filePath)            
+            else:
+                return pd.read_csv(filePath)                
+        except:
+            print "Could not find or read the {} file for {}! Skipping!\n".format(searchString, trial_path)
+        
     # Pandas Summary File Readin Function
     def summary_readin(self, dataPath = None, End_Flag = None):
         """
         Function that reads in the .txt summariy files generated from the 
         fly alcohol assay into a pandas dataframe
+        
+        Need a special readin function for the summary because sometimes if a
+        lane times out we would still like to have the data be a NaN rather than
+        completely omitted. (can be used for categorical analyses such as did 
+        fly make it to the end or not)
+        
+        End_Flag should be toggled to true if you're trying to read in the
+        EndChamber summary file as it has extra time periods compared to walkway
+        data
         """        
         if dataPath:
             data = pd.read_csv(dataPath)
@@ -118,7 +128,7 @@ class load_trial():
                     template.loc[val-1] = data.loc[indx]
                                 
             return(template)
-        
+            
 # Class that loads in a single experiment        
 class load_expt():
     
@@ -130,6 +140,11 @@ class load_expt():
             expt_name = os.path.basename(expt_path)
 
             # Get experiment details from directory name
+            # This function can fail miserably depending on your naming scheme for the experiment folder 
+            # Typical naming scheme I use:
+            # "Dur" and "Data" are not parsed
+            # "YYYY-MM-DD exptCondition timeOfDay exptType Dur treatmentDuration Data"
+            # I.E. "2015-03-10 Test PM2 EtOH80 Dur 10 Data"
             date, exptCondition, time, exptType, _, duration, _ = expt_name.split(" ")            
             
             # Get tentative trial directories from experiment directory path
@@ -141,7 +156,7 @@ class load_expt():
                     setattr(self, "Trial_{}".format(indx), load_trial(trial))
                     
 # A class that reads in an entire experiment set
-# I.E. Air Train/Test vs. EtOH Train/Test (4 days worth of experiments)
+# I.E. Air Train/Test vs. EtOH Train/Test (2 days worth of experiments)
 class load_set(): 
     
     # Initilization to convert dictionary into object attributes
@@ -159,12 +174,17 @@ class load_set():
                        
             for exptDir in exptDirectories:
                 
+                # This function can fail miserably depending on your naming scheme for the experiment folder 
+                # Typical naming scheme I use:
+                # "Dur" and "Data" are not parsed
+                # "YYYY-MM-DD exptCondition timeOfDay exptType Dur treatmentDuration Data"
+                # I.E. "2015-03-10 Test PM2 EtOH80 Dur 10 Data"                                
                 # Parse out:
-                # date: YYYY-MM-D
+                # date: YYYY-MM-DD
                 # exptCondition: Training or Test
                 # time: PM1 or PM2 or something else
                 # exptType: Air or EtOH
-                # duration: Amount of time 
+                # duration: Amount of time flies are treated to EtOH or Air
                 date, exptCondition, time, exptType, _, duration, _ = exptDir.split(" ")
                 setattr(self, str(exptCondition + "_" + exptType), load_expt(os.path.join(set_path, exptDir)))
                 
