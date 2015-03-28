@@ -28,56 +28,81 @@ import matplotlib.gridspec as gridspec
 #
 #EtOH45_data = [set1_path, set2_path, set3_path, set4_path, set5_path] <<-- this is the "grand dataset" to input into the processing and analysis functions
 
-def normalize_processed_data(processed_data):
+def transform_processed_data(processed_data, norm = None, diff = None):
     """
     Function that takes in data that was returned by process_data()
+    and transforms it in various ways
     
-    Normalizes by taking the time to end chamber *for each lane* for the 
+    1) Can Normalize by taking the time to end chamber *for each lane* for the 
     first training trial and dividing both the training trial as well as 
     testing trial values
+    
+    2) Can take Differences between trials within a single experiment
+    (i.e. t1-t2, t2-t3, t3-t4, etc...)
+    positive values indicate the the subsequent trial was faster than the former
+    negative values indicate the opposite.
     """
     
-    def norm(expt_set, cond_dict, numerator_label, denominator_label):
+    def normalize_df(expt_set, cond_dict, numerator_label, denominator_label):
         
-        df = expt_set[1][cond_dict[numerator_label]]  
-        denominator = expt_set[1][cond_dict[denominator_label]]['t1']
+        df = expt_set[cond_dict[numerator_label]]  
+        denominator = expt_set[cond_dict[denominator_label]]['t1']
         
         tunnel = df['tunnel']
-        df_new = df[['t1','t2','t3']]
+        #df_new = df[['t1','t2','t3']]
+        df_new =df.drop('tunnel', 1)
         df_new = df_new.divide(denominator, axis='rows')
         df_new.insert(0, 'tunnel', tunnel)
         df_new.condition_type = numerator_label
         return df_new
     
-    norm_expt_data = []
+    trans_expt_data = []
     
-    for expt_set in processed_data:
-        cond_dict = {condition_expt.condition_type: indx for indx, condition_expt in enumerate(expt_set[1])}
-        
-        #Get test labels because they will always occur alphabetically before training labels
-        test_labels = [condition_expt.condition_type for condition_expt in expt_set[1] if "Test" in condition_expt.condition_type]
-        
+    for expt_set in processed_data:       
         #Need to pre-allocate an empty list so that normalized data can be re-inserted in the correct condition order
-        norm_set = [None]*len(expt_set[1])
+        trans_set = [None]*len(expt_set)
         
-        for test_label in test_labels:
-            train_label = 'Training_' + test_label.split("_")[1]
+        #following section performs normalization of processed data
+        if norm is True:      
+            cond_dict = {condition_expt.condition_type: indx for indx, condition_expt in enumerate(expt_set)}
         
-            norm_train = norm(expt_set, cond_dict, train_label, train_label)
-            norm_test = norm(expt_set, cond_dict, test_label, train_label)
+            #Get test labels because they will always occur alphabetically before training labels
+            test_labels = [condition_expt.condition_type for condition_expt in expt_set if "Test" in condition_expt.condition_type]
             
-            norm_set[cond_dict[train_label]] = norm_train
-            norm_set[cond_dict[test_label]] = norm_test
+            for test_label in test_labels:
+                train_label = 'Training_' + test_label.split("_")[1]
             
-        norm_expt_data.append((expt_set[0], norm_set))
-            
-    return norm_expt_data
-    
-def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 'total_time'):
+                norm_train = normalize_df(expt_set, cond_dict, train_label, train_label)
+                norm_test = normalize_df(expt_set, cond_dict, test_label, train_label)
+                
+                trans_set[cond_dict[train_label]] = norm_train
+                trans_set[cond_dict[test_label]] = norm_test
+                                
+            trans_expt_data.append(trans_set)
+        
+        #following section perform between trial difference subtractions of processed data
+        if diff is True:
+            trans_df_set = []
+            for df in expt_set:                
+                cond = df.condition_type                
+                tunnel = df['tunnel']
+                df = df.drop('tunnel', 1)                                
+                #loops through number of columns in our dataframe (we dropped 1 column already) and takes difference scores
+                #stores difference as {d1: t1-t2, d2: t2-t3, etc...}
+                df_dict = {'d{}'.format(indx): df['t{}'.format(indx)]-df['t{}'.format(indx+1)] for indx in range(1, len(df.columns))}
+                        
+                trans_df = pd.DataFrame(df_dict)
+                trans_df.insert(0, 'tunnel', tunnel)                
+                trans_df.condition_type = cond                
+                trans_df_set.append(trans_df)           
+            trans_expt_data.append(trans_df_set)
+    return trans_expt_data
+
+def process_data(grand_dataset, expected_numTrials = None, norm = False, diff = False, dv = 'total_time'):
     """
     Function to process a list of paths to experiment set directories
-    This particular function only parses out time to end-chamber information
-    For the different conditions    
+    This particular function by default parses out time to end-chamber 
+    information ("total_time") for the different conditions    
 
     Also accepts an expected number of trials (expected_numTrials) in case 
     some trials are not in the data (i.e. weren't collected, absent due to errors, etc.)
@@ -88,7 +113,6 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 't
     The output of this function can be further processed with the:
     process_grand_data_summary() function
     """
-
     if dv is 'total_time':
         c_to_drop = [2,3,4]
         c_to_drop2 = [0,2,3,4]
@@ -101,7 +125,6 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 't
     elif dv is 'mean_angular_velocity':
         c_to_drop = [1,2,3]
         c_to_drop2 = [0,1,2,3]
-
         
     expt_data = []
     
@@ -128,11 +151,11 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 't
                get_dataframe = operator.attrgetter('.'.join((cond, trial, "Summarized_Walk_Table")))
                df = get_dataframe(expt_set)           
                if indx == 0:
-                   # Drop all columns except tunnel and total_time
+                   # Drop all columns except tunnel and our dependent variable of interest
                    # This is okay to hardcode!
                    df = df.drop(df.columns[c_to_drop], axis=1)
                else:
-                   #drop all columns except total_time
+                   #drop all columns except  our dependent variable of interest
                    df = df.drop(df.columns[c_to_drop2], axis=1)                   
                #rename total_time so that it incorporates the trial info the data came from
                df = df.rename(columns = {dv:'t{}'.format(indx+1)})               
@@ -144,16 +167,88 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False, dv = 't
                    template_df = pd.DataFrame(columns=["t{}".format(len(cond_dfs)+1)], index=range(0,6))
                    cond_dfs.append(template_df)
            cond_times = pd.concat(cond_dfs, axis=1)
-           #Add a "metatag" to each dataframe that describes the condition
+           #Add a "metatag" to each dataframe that describes the experiment condition
            cond_times.condition_type = cond
+           cond_times.faa_instance = expt_set
            set_data.append(cond_times)          
-        expt_data.append((expt_set, set_data))
+        expt_data.append(set_data)
         
-    if norm is True:
-        expt_data = normalize_processed_data(expt_data)
+    #Do post processing transformations on data?
+    if norm is True or diff is True:
+        expt_data = transform_processed_data(expt_data, norm=norm, diff=diff)
     return expt_data
 
+def process_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):   
+    """
+    Takes the processed data (from process_data() function) and concatenates
+    replicates of the same experiment condition data together. This allows for 
+    summary style calculations, plotting, and statistics for
+    a specific experiment condition.
+    """        
+    expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)    
+    # To get grand data summary we want to concatenate trials for a given condition across different replicates    
+    # First determine number of conditions    
+    num_conditions = len(expt_time_data[0])    
+    # Get the condition labels
+    cond_labels = [df.condition_type for df in expt_time_data[0]]    
+    cond_summ_dict = {}
+        
+    # For each condition type:
+    for cond_ind in range(num_conditions):        
+        cond_df_list = []        
+        # For each replicate
+        for rep_ind, replicate in enumerate(expt_time_data):            
+            # Add the dataframe for the given condition to a list
+            cond_df_list.append(expt_time_data[rep_ind][cond_ind])            
+        # Concatenate all the dataframes in the condition list and add to
+        # a condition summary dictionary
+        cond_summ_dict[cond_labels[cond_ind]] = pd.concat(cond_df_list)               
+    return cond_summ_dict
+
+
+def set_boxplot_colors(data_to_plot, boxplot_object, line_list=None, line_colors=None, mean_colors = None, mean_edge_colors = None):
+    """
+    Function to set boxplot colors
     
+    Passing plt line objects via line_list will allow the boxplot colors to 
+    match the color scheme of previously plotted data
+    
+    Passing line_colors (hex colors in a list i.e. ["#800000", "#006700", "#0000ff"]) 
+    will allow setting main boxplot colors 
+    
+    Passing mean_colors allows specification of the color for the mean point
+    Passing mean_edge_colors allows specification of mean point edge color
+    
+    (NOTE: For all color options make sure there are are the same number of colors as there are datapoints to be plotted!)
+    
+    """    
+    for indx, data in enumerate(data_to_plot, start=0):
+        if line_list:                
+            lcolors = line_list[indx].get_color()
+        elif line_colors:
+            lcolors = line_colors[indx]
+        else:
+            print "Warning!! No line_colors or line_list was specified for the boxplot! It will come out looking weird!!"
+            break      
+        
+        if mean_colors:
+            mcolors = mean_colors
+        else:
+            mcolors = ["#800000", "#006700", "#0000ff"]
+            
+        if mean_edge_colors:
+            medges = mean_edge_colors
+        else:
+            medges = ["white", "white", "white"]    
+            
+        boxplot_object['boxes'][indx].set(color=lcolors)
+        plt.setp(boxplot_object['caps'][2*indx:2*indx+2], color='none')
+        plt.setp(boxplot_object['whiskers'][2*indx:2*indx+2], color=lcolors, linestyle='solid')
+        boxplot_object['means'][indx].set(color=lcolors, markerfacecolor=mcolors[indx], markeredgecolor = medges[indx], marker="o", mew=1.1)             
+        #outlier 'flier' colors are implemented with markeredgecolor not "color"
+        boxplot_object['fliers'][indx].set(markeredgecolor=lcolors, markersize=8.0) 
+                
+        
 def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
     """
     Function that plots a data summary for each experimental replicate
@@ -164,7 +259,7 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
     """
     expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)
     
-    for indx, (expt_set, expt) in enumerate(expt_time_data):
+    for indx, expt in enumerate(expt_time_data):
         
         fig = plt.figure(figsize=(11, 8.5))  
         fig.suptitle("Summarized Data for Expt Replicate {}".format(indx+1), fontsize=12, fontweight='bold')
@@ -175,7 +270,7 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
         for indx2, cond_df in enumerate([expt[i] for i in [2,0,3,1]]):
             cond_label = cond_df.condition_type
             
-            expt_set_cond = getattr(expt_set, cond_label)
+            expt_set_cond = getattr(cond_df.faa_instance, cond_label)
             expt_set_cond_path = getattr(expt_set_cond, "expt_path")
             
             # expt_set_cond_path will take on a value something like:
@@ -202,12 +297,12 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
             series = [series for series in list(cond_df.columns.values) if "tunnel" not in series]                                          
             ax.hold(True)      
             
-            linelist = []
+            line_list = []
             #Plot for each trial the datapoints for the 6 tunnels
             for indx3, trial in enumerate(series, start=1):                                
                 # plt.plot(x, y, marker, label, markerwidth, markersize, z-order)
                 line, = ax.plot(range(1,7), cond_df["{}".format(trial)].values, '_', label="Trial {}".format(indx), mew=3, ms=15, zorder=0)
-                linelist.append(line)
+                line_list.append(line)
                 
             ax.set_xlim(0.25, 6.75)
             if norm is True:
@@ -235,32 +330,20 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
                 if not np.isnan(cond_df[column].tolist()).all():
                     if "tunnel" not in column:
                         data = np.array(cond_df[column].tolist())[~np.isnan(cond_df[column].tolist())]
-                        data_to_plot.append(np.array(cond_df[column].tolist())[~np.isnan(cond_df[column].tolist())])
+                        data_to_plot.append(data)
             
             ax2 = plt.Subplot(fig, inner_grid[1])
             ax2.hold(True)
             
             #frame.boxplot(ax = ax, showmeans=True, labels=labels, return_type = 'axes')
             box = ax2.boxplot(data_to_plot, showmeans= True, patch_artist=True, medianprops=dict(color='white', linewidth=1.2))
+            set_boxplot_colors(data_to_plot, box, line_list=line_list)
             
             ax2.tick_params(top="off",right="off", bottom="off")     
             ax2.spines['right'].set_visible(False)
             ax2.spines['top'].set_visible(False)               
-            ax2.set_yticklabels([])
-            
-            for indx4, data in enumerate(data_to_plot, start=0):
-                #box = ax2.boxplot(data_to_plot[indx4], labels=trial)
-                lcolor = linelist[indx4].get_color()
-                mean_colors = ["#800000", "#006700", "#0000ff"]
-                mean_edges = ["white", "white", "white"]
-                
-                box['boxes'][indx4].set(color=lcolor)
-                plt.setp(box['caps'][2*indx4:2*indx4+2], color='none')
-                plt.setp(box['whiskers'][2*indx4:2*indx4+2], color=lcolor, linestyle='solid')
-                box['means'][indx4].set(color=lcolor, markerfacecolor=mean_colors[indx4], markeredgecolor = mean_edges[indx4], marker="o", mew=1.1)             
-                #outlier 'flier' colors are implemented with markeredgecolor not "color"
-                box['fliers'][indx4].set(markeredgecolor=lcolor, markersize=8.0)                  
-            
+            ax2.set_yticklabels([])            
+                     
             if norm is True:
                 ax2.set_ylim(-1, 20)
             else:
@@ -270,34 +353,15 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
             fig.add_subplot(ax2)
                     
         #fig.savefig(u'C:/Users/Nicholas/Desktop/Summarized Data for Expt Replicate {}.pdf'.format(indx+1), format='pdf')        
-                
-def process_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):   
+ 
+
+def plot_single_expt(cond_df, expt_set, norm = False):
     """
-    Takes the processed data (from process_data() function) and concatenates
-    replicates of the same experiment condition data together. This allows for 
-    summary style calculations, plotting, and statistics for
-    a specific experiment condition.
-    """        
-    expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)    
-    # To get grand data summary we want to concatenate trials for a given condition across different replicates    
-    # First determine number of conditions    
-    num_conditions = len(expt_time_data[0][1])    
-    # Get the condition labels
-    cond_labels = [df.condition_type for df in expt_time_data[0][1]]    
-    cond_summ_dict = {}
-        
-    # For each condition type:
-    for cond_ind in range(num_conditions):        
-        cond_df_list = []        
-        # For each replicate
-        for rep_ind, replicate in enumerate(expt_time_data):            
-            # Add the dataframe for the given condition to a list
-            cond_df_list.append(expt_time_data[rep_ind][1][cond_ind])            
-        # Concatenate all the dataframes in the condition list and add to
-        # a condition summary dictionary
-        cond_summ_dict[cond_labels[cond_ind]] = pd.concat(cond_df_list)               
-    return cond_summ_dict
-            
+    placeholder for some refactoring that needs to be done for the plotting functions
+    """
+    pass
+
+               
 def plot_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):
     """
     Takes the processed grand summary data (from process_grand_data_summary() function) 
@@ -322,7 +386,8 @@ def plot_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):
         for column in cond_df.columns.values:
             if not np.isnan(cond_df[column].tolist()).all():
                 if "tunnel" not in column:
-                    data_to_plot.append(np.array(cond_df[column].tolist())[~np.isnan(cond_df[column].tolist())])
+                    data = np.array(cond_df[column].tolist())[~np.isnan(cond_df[column].tolist())]
+                    data_to_plot.append(data)
                             
         ax = plt.Subplot(fig, outer_grid[indx])
         #ax.set_color_cycle(['#e41a1c', '#4daf4a', '#377eb8']) 
@@ -342,21 +407,9 @@ def plot_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):
         if indx == 2 or indx == 3:
             ax.set_xlabel("Trial", fontweight='bold')
                                                                                        
-        box = ax.boxplot(data_to_plot, showmeans=True, patch_artist=True, medianprops=dict(color='white', linewidth=1.2), widths=0.20)
+        box = ax.boxplot(data_to_plot, showmeans=True, patch_artist=True, medianprops=dict(color='white', linewidth=1.2), widths=0.20)        
+        set_boxplot_colors(data_to_plot, box, line_colors=['#e41a1c', '#4daf4a', '#377eb8'])
 
-        for indx2, data in enumerate(data_to_plot, start=0):
-            #box = ax2.boxplot(data_to_plot[indx4], labels=trial)
-            lcolor = ['#e41a1c', '#4daf4a', '#377eb8'][indx2]
-            mean_colors = ["#800000", "#006700", "#0000ff"]
-            mean_edges = ["white", "white", "white"]
-                
-            box['boxes'][indx2].set(color=lcolor)
-            plt.setp(box['caps'][2*indx2:2*indx2+2], color='none')
-            plt.setp(box['whiskers'][2*indx2:2*indx2+2], color=lcolor, linestyle='solid')
-            box['means'][indx2].set(color=lcolor, markerfacecolor=mean_colors[indx2], markeredgecolor = mean_edges[indx2], marker="o", mew=1.1)             
-            #outlier 'flier' colors are implemented with markeredgecolor not "color"
-            box['fliers'][indx2].set(markeredgecolor=lcolor, markersize=8.0)          
-                
         fig.add_subplot(ax)
     plt.tight_layout            
                     
@@ -423,7 +476,7 @@ def plot_speed_comparison(grand_dataset, norm=False, dv ='total_time'):
     expt_time_data = process_data(grand_dataset, 3, norm, dv=dv)     
     all_expt = []
     
-    for (expt_set, expt) in expt_time_data:        
+    for expt in expt_time_data:        
         expt_dict = {}
     
         for cond_df in expt:  
