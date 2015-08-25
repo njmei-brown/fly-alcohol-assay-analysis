@@ -6,7 +6,7 @@ Fly Behavioral Expression of Ethanol Reward assay
 import os
 import operator
 import math
-import FAA_IO as FAA
+import faa_io as FAA
 
 from collections import defaultdict
 from scipy import stats
@@ -133,16 +133,14 @@ def process_data(grand_dataset, expected_numTrials = None, norm = False, diff = 
         # Get the conditions from the loaded expt class
         # Will typically be something like:
         # ['Training_EtOH45', 'Training_Air', 'Test_EtOH45', 'Test_Air']
-        conditions = [key for key in expt_set.__dict__.keys() if ("Train" in key) or ("Test" in key)]
-        conditions.sort()
+        conditions = sorted([key for key in expt_set.__dict__.keys() if ("Train" in key) or ("Test" in key)])
         set_data = []   
             
         for cond in conditions:            
            # Get the num trials from the loaded expt class
            # Will typically be something like:
            # ['Trial_1', 'Trial_2', 'Trial_3']           
-           trials = [key for key in getattr(expt_set, cond).__dict__.keys() if "Trial" in key]
-           trials.sort()          
+           trials = sorted([key for key in getattr(expt_set, cond).__dict__.keys() if "Trial" in key])          
            cond_dfs = []
            
            for indx, trial in enumerate(trials): 
@@ -228,18 +226,21 @@ def set_boxplot_colors(data_to_plot, boxplot_object, line_list=None, line_colors
         elif line_colors:
             lcolors = line_colors[indx]
         else:
-            print "Warning!! No line_colors or line_list was specified for the boxplot! It will come out looking weird!!"
+            print("Warning!! No line_colors or line_list was specified for the boxplot! It will come out looking weird!!")
             break      
         
         if mean_colors:
             mcolors = mean_colors
         else:
-            mcolors = ["#800000", "#006700", "#0000ff"]
+            mcolors = ["#800000", "#006700", "#0000ff", "#552700"]
             
         if mean_edge_colors:
             medges = mean_edge_colors
         else:
-            medges = ["white", "white", "white"]    
+            medges = ["white", "white", "white", "white"]    
+            
+        if len(data_to_plot) > len(mcolors):
+            print ("Imminent warning! Your plots are going to fail because you haven't set enough colors!")
             
         boxplot_object['boxes'][indx].set(color=lcolors)
         plt.setp(boxplot_object['caps'][2*indx:2*indx+2], color='none')
@@ -258,6 +259,8 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
     alongside a box and whisker summary of all flies for a trial
     """
     expt_time_data = process_data(grand_dataset, 3, norm, dv = dv)
+
+    plt.rcParams.update({'font.size': 12})
     
     for indx, expt in enumerate(expt_time_data):
         
@@ -292,7 +295,8 @@ def plot_data_summary(grand_dataset, norm = False, dv = 'total_time'):
             ax = plt.Subplot(fig, inner_grid[0])         
 
             #setting the color cycle using colorbrewer2.org
-            ax.set_color_cycle(['#e41a1c', '#4daf4a', '#377eb8'])            
+            #http://paletton.com/ is pretty nice too           
+            ax.set_color_cycle(['#e41a1c', '#4daf4a', '#377eb8', '#AA6C39'])            
             
             series = [series for series in list(cond_df.columns.values) if "tunnel" not in series]                                          
             ax.hold(True)      
@@ -373,8 +377,7 @@ def plot_grand_data_summary(grand_dataset, norm=False, dv = 'total_time'):
     fig.subplots_adjust(top=0.90)            
     outer_grid = gridspec.GridSpec(2, 2, hspace = 0.25, wspace = 0.15)
     
-    sorted_keys = summ_data_dict.keys()
-    sorted_keys.sort()  
+    sorted_keys = sorted(summ_data_dict.keys())  
     
     for indx, cond in enumerate([sorted_keys[i] for i in [2,0,3,1]]):                
         cond_df = summ_data_dict[cond]                
@@ -420,13 +423,14 @@ def plot_trial_by_trial_grand_summary(grand_dataset, norm=False, dv = 'total_tim
     """
     summ_data_dict = process_grand_data_summary(grand_dataset, norm, dv=dv)  
     
+    plt.rcParams.update({'font.size': 16})
+    
     fig = plt.figure(figsize=(11, 8.5))      
-    fig.suptitle("Summarized Data", fontsize=12, fontweight='bold')
+    fig.suptitle("Summarized Data", fontsize=14, fontweight='bold')
     fig.subplots_adjust(top=0.90)            
     outer_grid = gridspec.GridSpec(2, 2, hspace = 0.25, wspace = 0.15)
     
-    sorted_keys = summ_data_dict.keys()
-    sorted_keys.sort()  
+    sorted_keys = sorted(summ_data_dict.keys()) 
     
     for indx, cond in enumerate([sorted_keys[i] for i in [2,0,3,1]]):                
         cond_df = summ_data_dict[cond]
@@ -435,7 +439,7 @@ def plot_trial_by_trial_grand_summary(grand_dataset, norm=False, dv = 'total_tim
         
         ax = plt.Subplot(fig, outer_grid[indx])
         #ax.set_color_cycle(['#e41a1c', '#4daf4a', '#377eb8']) 
-        ax.set_title(' '.join(cond.split('_')), fontweight='bold', fontsize=10)
+        ax.set_title(' '.join(cond.split('_')), fontweight='bold', fontsize=14)
         if norm is True:
             ax.set_ylim(-1, 20)
         else:
@@ -529,8 +533,8 @@ def plot_speed_comparison(grand_dataset, norm=False, dv ='total_time'):
 
     # Go through generated all_expt variable and do some unpacking
     for d in all_expt:
-        for key, value in d.iteritems():
-            for key2, value2 in value.iteritems( ):                
+        for key, value in iter(d.items()):
+            for key2, value2 in iter(value.items()):                
                 if key2 == 'fast':
                     fast_dict[key].append(value2)
                 if key2 == 'slow':
@@ -548,8 +552,7 @@ def plot_speed_comparison(grand_dataset, norm=False, dv ='total_time'):
         fig.subplots_adjust(top=0.9)             
         outer_grid = gridspec.GridSpec(2, 2, hspace = 0.2, wspace = 0.15)
 
-        sorted_keys = d.keys()
-        sorted_keys.sort()      
+        sorted_keys = sorted(d.keys())    
                        
         for indx, key in enumerate([sorted_keys[i] for i in [2,0,3,1]]):    
             value = d[key]                    

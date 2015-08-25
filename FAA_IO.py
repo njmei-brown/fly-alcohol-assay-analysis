@@ -5,6 +5,7 @@ Fly Alcohol Assay
 
 By Nicholas Mei
 """
+import sys
 import os
 import os.path
 
@@ -13,8 +14,15 @@ import glob
 import pandas as pd
 import numpy as np
 
-import Tkinter as tk
-import tkFileDialog
+#If we are using python 2.7 or under
+if sys.version_info[0] < 3:
+    import Tkinter as tk
+    import tkFileDialog as filedialog
+      
+#If we are using python 3.0 or above
+elif sys.version_info[0] > 3:
+    import tkinter as tk
+    import tkinter.filedialog as filedialog
 
 def chooseDir(cust_text):
     root = tk.Tk()
@@ -24,7 +32,7 @@ def chooseDir(cust_text):
         pass
     
     baseFilePath = "C:\Users\Nicholas\Desktop\FlyBar Analysis"
-    directoryPath = tkFileDialog.askdirectory(parent = root, title=cust_text, initialdir= baseFilePath)
+    directoryPath = filedialog.askdirectory(parent = root, title=cust_text, initialdir= baseFilePath)
     root.destroy()
     
     return directoryPath
@@ -49,7 +57,6 @@ class load_trial():
             self.Analyzed_Walk_Table = self.readin(trial_path, "Analyzed-Walkway")          
             self.Summarized_Walk_Table = self.readin(trial_path, "Summarized-Walkway")
 
-
             #EndChamber relevant data  
             self.Raw_End_Table = self.readin(trial_path, "Raw-EndChamber")            
             self.Analyzed_End_Table = self.readin(trial_path, "Analyzed-EndChamber")
@@ -73,7 +80,7 @@ class load_trial():
             else:
                 return pd.read_csv(filePath)                
         except:
-            print "Could not find or read the {} file for {}! Skipping!\n".format(searchString, trial_path)
+            print("Could not find or read the {} file for {}! Skipping!\n".format(searchString, trial_path))
         
     # Pandas Summary File Readin Function
     def summary_readin(self, dataPath = None, End_Flag = None):
